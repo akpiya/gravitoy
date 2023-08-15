@@ -91,7 +91,7 @@ impl Widget<Simulation> for GravityDisplay {
 impl Simulation {
     pub fn update(&mut self) {
         let mut forces: Vec<(f64, f64)> = Vec::new();
-        for i in 0..self.bodies.borrow().len().clone() {
+        for i in 0..self.bodies.borrow().len() {
             let mut net_force = (0.0, 0.0);
 
             for j in 0..self.bodies.borrow().len() {
