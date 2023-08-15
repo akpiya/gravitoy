@@ -1,20 +1,22 @@
-use std::{thread, time};
+use std::time::Duration;
 use std::rc::Rc;
+use std::cell::RefCell;
 use druid::Data;
-use druid::kurbo::Size;
-use druid::piet::InterpolationMode;
+use druid::kurbo::{Size, Circle};
 use druid::widget::prelude::*;
 use druid::{
-    Affine, AppLauncher, Color, Data, FontDescriptor, LocalizedString, Point, Rect, TextLayout,
-    WindowDesc,
+    AppLauncher, LocalizedString, WindowDesc, TimerToken, Color
 };
 
-struct GravityDisplay;
+static TIMER_INTERVAL: Duration = Duration::from_millis(25);
+struct GravityDisplay {
+    timer_id: TimerToken,
+}
 
 #[derive(Clone, Data)]
 struct Simulation {
     dt: f64,
-    bodies: Rc<Vec<CelestialObject>>,
+    bodies: Rc<RefCell<Vec<CelestialObject>>>,
 }
 
 
@@ -25,13 +27,24 @@ struct CelestialObject {
     mass: f64,
     v_x: f64,
     v_y: f64,
-    id: u32
 }
 
 impl Widget<Simulation> for GravityDisplay {
 
     fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut Simulation, _env: &Env) {
-        
+        match event {
+            Event::WindowConnected => {
+                self.timer_id = ctx.request_timer(TIMER_INTERVAL);
+            }
+            Event::Timer(id) => {
+                if *id == self.timer_id {
+                    ctx.request_paint();
+                    data.update();
+                    self.timer_id = ctx.request_timer(TIMER_INTERVAL);
+                }
+            }
+            _ => {}
+        }        
     }
     
     fn lifecycle(
@@ -44,13 +57,11 @@ impl Widget<Simulation> for GravityDisplay {
 
     fn update(
         &mut self,
-        ctx: &mut UpdateCtx,
+        _ctx: &mut UpdateCtx,
         _old_data: &Simulation,
         _data: &Simulation,
         _env: &Env
-    ) {
-        ctx.request_paint();
-    }
+    ) {}
 
     fn layout(
         &mut self,
@@ -59,40 +70,48 @@ impl Widget<Simulation> for GravityDisplay {
         _data: &Simulation,
         _env: &Env,
     ) -> Size {
-        return bc.max();
+        bc.constrain((100.0, 100.0))
     }
 
     fn paint(
         &mut self,
-        paint_ctx: &mut PaintCtx,
+        ctx: &mut PaintCtx,
         data: &Simulation,
         _env: &Env) {
         
-    }
-
-    
-
-}
-
-impl GravityDisplay {
-
-    fn time_step(&mut self, mut bodies: Rc<Vec<CelestialObject>> ) {
-        for body in bodies.iter() {
-            println!("({}, {})", body.x, body.y);
+        let radius = 20.0;
+        
+        for body in (*data.bodies).borrow().iter() {
+            let point = Circle::new((body.x, body.y), radius);
+            ctx.fill(point, &Color::RED);
         }
-
-        println!();
-        for body in bodies.iter_mut() {
-            body.update_state(&(*bodies), &((*data).dt));
-        }
-
-        thread::sleep(time::Duration::from_millis(500));
     }
 }
 
+impl Simulation {
+    pub fn update(&mut self) {
+        let mut forces: Vec<(f64, f64)> = Vec::new();
+        for i in 0..self.bodies.borrow().len().clone() {
+            let mut net_force = (0.0, 0.0);
 
+            for j in 0..self.bodies.borrow().len() {
+                if i != j {
+                    let result = self.bodies.borrow()[i].calculate_force(&self.bodies.borrow()[j]);
+                    net_force.0 += result.0;
+                    net_force.1 += result.1;
+                }
+            }
+            net_force.0 /= self.bodies.borrow()[i].mass;
+            net_force.1 /= self.bodies.borrow()[i].mass;
 
+            forces.push(net_force);
+        }
 
+        for (i, body) in self.bodies.borrow_mut().iter_mut().enumerate() {
+            body.update_fields_from_force(&forces[i], &self.dt);
+        }
+    }
+}
 
 impl CelestialObject {
     fn calculate_force(&self, source: &CelestialObject) -> (f64, f64) {
@@ -111,42 +130,27 @@ impl CelestialObject {
         self.v_x += acc.0 * dt;
         self.v_y += acc.0 * dt
     }
-
-    fn update_state(&mut self, bodies: &Vec<CelestialObject>, dt: &f64) {
-        let mut net_force = (0.0, 0.0);
-        for body in bodies.iter() {
-            if self.id != body.id {
-                let result = self.calculate_force(&body);
-                net_force.0 += result.0;
-                net_force.1 += result.1;
-            }
-        }
-        net_force.0 /= self.mass;
-        net_force.1 /= self.mass;
-
-        self.update_fields_from_force(&net_force, dt);
-    }
 }
 
 fn main(){
-    let dt: f64 = 1.0;
-
     let mut bodies: Vec<CelestialObject> = Vec::new();
 
-    bodies.push(CelestialObject { x: 0.0, y: 0.0, mass: 1000.0, v_x: 0.0, v_y: 0.0, id: 0});
-    bodies.push(CelestialObject { x: 500.0, y: 0.0, mass: 300.0, v_x: 0.0, v_y: 0.0, id: 1});
-    bodies.push(CelestialObject { x: 1000.0, y: 100.0, mass: 300.0, v_x: 0.0, v_y: 0.0, id: 2});
-    //bodies.push(CelestialObject { x: 500.0, y: 500.0, mass: 300.0, v_x: 0.5, v_y: 0.5 });
-    let copy_bodies = bodies.clone();
+    bodies.push(CelestialObject { x: 100.0, y: 100.0, mass: 1000.0, v_x: 0.0, v_y: 0.0});
+    bodies.push(CelestialObject { x: 250.0, y: 150.0, mass: 300.0, v_x: 10.0, v_y: 0.0});
+    bodies.push(CelestialObject { x: 200.0, y: 100.0, mass: 300.0, v_x: 0.0, v_y: 0.0});
 
-    loop {
+    let sim = Simulation {
+        bodies: Rc::new(RefCell::new(bodies)),
+        dt: 0.25,
+    };
 
-        
-    }
+    let window = WindowDesc::new(GravityDisplay {timer_id : TimerToken::INVALID}).title(
+        LocalizedString::new("gravity_sim")
+            .with_placeholder("placeholder")
+    );
 
-    let window = WindowDesc::new(sim).title(LocalizedString::new("Gravity"));
-        AppLauncher::with_window(window)
-            .log_to_console()
-            .launch("something")
-            .expect("launch failed");
+    AppLauncher::with_window(window)
+        .log_to_console()
+        .launch(sim)
+        .expect("launch failed");
 }
