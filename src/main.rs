@@ -2,10 +2,10 @@ use std::time::Duration;
 use std::rc::Rc;
 use std::cell::RefCell;
 use druid::Data;
-use druid::kurbo::{Size, Circle};
+use druid::kurbo::{Size, Circle, Line};
 use druid::widget::prelude::*;
 use druid::{
-    AppLauncher, LocalizedString, WindowDesc, TimerToken, Color, Point
+    AppLauncher, LocalizedString, WindowDesc, TimerToken, Color, Point, MouseButton
 };
 
 static TIMER_INTERVAL: Duration = Duration::from_millis(10);
@@ -17,8 +17,10 @@ struct GravityDisplay {
 struct Simulation {
     dt: f64,
     bodies: Rc<RefCell<Vec<CelestialObject>>>,
+    proposed_body: CelestialObject,
+    mouse_pressed: bool,
     cursor_pos: Point,
-    cursor_on_window: bool, 
+
 }
 
 
@@ -31,10 +33,16 @@ struct CelestialObject {
     prev_y: f64,
 }
 
-impl Widget<Simulation> for GravityDisplay {
 
+fn mass_to_radius(mass:f64) -> f64 {
+    // mass = [1.0, infty]
+    // radius = [3.0, 100.0]
+    mass.sqrt() + 2.0
+}
+
+
+impl Widget<Simulation> for GravityDisplay {
     fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut Simulation, _env: &Env) {
-        data.cursor_on_window = true;
 
         match event {
             Event::WindowConnected => {
@@ -49,10 +57,43 @@ impl Widget<Simulation> for GravityDisplay {
             }
             Event::MouseMove(event) => {
                 data.cursor_pos = event.window_pos.clone();
+                
+                if !data.mouse_pressed {
+                    data.proposed_body.x = data.cursor_pos.x.clone();
+                    data.proposed_body.y = data.cursor_pos.y.clone();
+                }
+
                 ctx.request_paint();
             }
+            Event::Wheel(event) => {
+                data.proposed_body.mass += 0.3 * event.wheel_delta.y;
+                ctx.request_paint();
+            }
+            Event::MouseDown(mouse) => {
+                match mouse.button {
+                    MouseButton::Left => {
+                        data.mouse_pressed = true;
+                    }
+                    _ => {}
+                }
+            }
+            Event::MouseUp(mouse) => {
+                match mouse.button {
+                    MouseButton::Left => {
+                        data.mouse_pressed = false;
+                        let mut body = data.proposed_body.clone();
+                        let scale = 10.0;
+                        let delta = ((data.cursor_pos.x - body.x), (data.cursor_pos.y - body.y));
+                        body.prev_x = body.x + delta.0 / scale; 
+                        body.prev_y = body.y + delta.1 / scale;
+                        data.bodies.borrow_mut().push(body);
+                        data.proposed_body = CelestialObject::new(0.0, 0.0, 10.0);
+                    }
+                    _ => {}
+                }
+            }
             _ => {}
-        }        
+        }
     }
     
     fn lifecycle(
@@ -87,15 +128,15 @@ impl Widget<Simulation> for GravityDisplay {
         data: &Simulation,
         _env: &Env) {
         
-        let radius = 100.0; //radius = [3.0, 100.0]
-        
         for body in (*data.bodies).borrow().iter() {
-            let point = Circle::new((body.x, body.y), radius);
+            let point = Circle::new((body.x, body.y), mass_to_radius(body.mass));
             ctx.fill(point, &Color::RED);
         }
         
-        if data.cursor_on_window {
-            ctx.fill(Circle::new((data.cursor_pos.x, data.cursor_pos.y),5.0), &Color::WHITE);
+        ctx.fill(Circle::new((data.proposed_body.x, data.proposed_body.y), mass_to_radius(data.proposed_body.mass)), &Color::WHITE);
+
+        if data.mouse_pressed {
+            ctx.stroke(Line::new(data.cursor_pos.clone(), Point::new(data.proposed_body.x, data.proposed_body.y)), &Color::GRAY, 3.0); 
         }
     }
 }
@@ -129,7 +170,8 @@ impl Simulation {
             bodies,
             dt,
             cursor_pos: Point::new(0.0, 0.0),
-            cursor_on_window: false,
+            proposed_body: CelestialObject::new(0.0, 0.0, 10.0),
+            mouse_pressed: false,
         }
     }
 }
@@ -180,8 +222,8 @@ impl CelestialObject {
 fn main(){
     let mut bodies: Vec<CelestialObject> = Vec::new();
 
-    bodies.push(CelestialObject::new_v0(200.0, 200.0, 20.0, 0.5, 0.1));
-    bodies.push(CelestialObject::new_v0(300.0, 170.0, 1000.0, -0.1, 0.0));
+    // bodies.push(CelestialObject::new_v0(200.0, 200.0, 20.0, 0.5, 0.1));
+    // bodies.push(CelestialObject::new_v0(300.0, 170.0, 1000.0, -0.1, 0.0));
     // bodies.push(CelestialObject::new_v0(200.0, 300.0, 1.0, -1.0, -1.0));
 
     let sim = Simulation::new(
