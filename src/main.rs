@@ -82,7 +82,7 @@ impl Widget<Simulation> for GravityDisplay {
                     MouseButton::Left => {
                         data.mouse_pressed = false;
                         let mut body = data.proposed_body.clone();
-                        let scale = 10.0;
+                        let scale = 20.0;
                         let delta = ((data.cursor_pos.x - body.x), (data.cursor_pos.y - body.y));
                         body.prev_x = body.x + delta.0 / scale; 
                         body.prev_y = body.y + delta.1 / scale;
@@ -144,15 +144,25 @@ impl Widget<Simulation> for GravityDisplay {
 impl Simulation {
     pub fn update(&mut self) {
         let mut accs: Vec<(f64, f64)> = Vec::new();
+        let mut merges: Vec<(usize, usize)> = Vec::new();
         for i in 0..self.bodies.borrow().len() {
             let mut net_force = (0.0, 0.0);
 
             for j in 0..self.bodies.borrow().len() {
-                if i != j {
-                    let result = self.bodies.borrow()[i].calculate_force(&self.bodies.borrow()[j]);
-                    net_force.0 += result.0;
-                    net_force.1 += result.1;
+                //Checking for merges
+                if i == j {
+                    continue;
                 }
+
+                let dist = ((self.bodies.borrow()[i].x - self.bodies.borrow()[j].x).powf(2.0) + (self.bodies.borrow()[i].y - self.bodies.borrow()[j].y).powf(2.0)).powf(0.5);
+
+                if dist <= mass_to_radius(self.bodies.borrow()[i].mass) + mass_to_radius(self.bodies.borrow()[j].mass) {
+                    merges.push((i, j))
+                }
+
+                let result = self.bodies.borrow()[i].calculate_force(&self.bodies.borrow()[j]);
+                net_force.0 += result.0;
+                net_force.1 += result.1;
             }
             net_force.0 /= self.bodies.borrow()[i].mass;
             net_force.1 /= self.bodies.borrow()[i].mass;
@@ -162,6 +172,46 @@ impl Simulation {
 
         for (i, body) in self.bodies.borrow_mut().iter_mut().enumerate() {
             body.update_fields_from_force(&accs[i], &self.dt);
+        }
+
+        let mut delete_idxs: Vec<usize> = Vec::new();
+
+        for i in 0..(merges.len() / 2) as usize{
+            let body1 = self.bodies.borrow()[merges[i].0].clone();
+            let body2 = self.bodies.borrow()[merges[i].1].clone();
+            
+            let center = (
+                (body1.mass * body1.x + body2.mass * body2.x) / (body1.mass + body2.mass), 
+                (body1.mass * body1.y + body2.mass * body2.y) / (body1.mass + body2.mass)
+            );
+
+            let prev_center = (
+                (body1.mass * body1.prev_x + body2.mass * body2.prev_x) / (body1.mass + body2.mass),
+                (body1.mass * body1.prev_y + body2.mass * body2.prev_y) / (body1.mass + body2.mass)
+            );
+
+            let index;
+            if body1.mass >= body2.mass {
+                index = merges[i].0.clone();
+                delete_idxs.push(merges[i].1);
+            } else {
+                index = merges[i].1.clone();
+                delete_idxs.push(merges[i].0);
+            }
+
+            self.bodies.borrow_mut()[index] = CelestialObject {
+                x: center.0,
+                y: center.1,
+                mass: body1.mass + body2.mass,
+                prev_x: prev_center.0,
+                prev_y: prev_center.1,
+            }
+        }
+
+        delete_idxs.sort();
+
+        for (i, ele) in delete_idxs.iter().enumerate() {
+            self.bodies.borrow_mut().remove(ele - i);
         }
     }
 
@@ -182,7 +232,7 @@ impl CelestialObject {
         let delta_y: f64 = source.y - self.y;
 
         let distance: f64 = (delta_x.powi(2) + delta_y.powi(2)).sqrt();
-        let force: f64 =  2.0 * (self.mass * source.mass) / (distance * distance);
+        let force: f64 =  15.0 * (self.mass * source.mass) / (distance * distance);
 
         return (force * (delta_x / distance), force * (delta_y / distance));
     }
@@ -220,7 +270,7 @@ impl CelestialObject {
 }
 
 fn main(){
-    let mut bodies: Vec<CelestialObject> = Vec::new();
+    let bodies: Vec<CelestialObject> = Vec::new();
 
     // bodies.push(CelestialObject::new_v0(200.0, 200.0, 20.0, 0.5, 0.1));
     // bodies.push(CelestialObject::new_v0(300.0, 170.0, 1000.0, -0.1, 0.0));
