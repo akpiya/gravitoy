@@ -1,11 +1,13 @@
 use std::time::Duration;
 use std::rc::Rc;
 use std::cell::RefCell;
+use std::cmp::max;
 use druid::Data;
 use druid::kurbo::{Size, Circle, Line};
 use druid::widget::prelude::*;
 use druid::{
-    AppLauncher, LocalizedString, WindowDesc, TimerToken, Color, Point, MouseButton
+    AppLauncher, LocalizedString, WindowDesc, TimerToken,
+    Color, Point, MouseButton, Code, KeyEvent
 };
 
 static TIMER_INTERVAL: Duration = Duration::from_millis(10);
@@ -18,9 +20,13 @@ struct Simulation {
     dt: f64,
     bodies: Rc<RefCell<Vec<CelestialObject>>>,
     proposed_body: CelestialObject,
-    mouse_pressed: bool,
+    left_mouse_pressed: bool,
+    middle_mouse_pressed: bool,
+    init_cursor_pos: Point,
     cursor_pos: Point,
-
+    scale: f64, 
+    camera_pos: Point, 
+    init_camera_pos: Point,
 }
 
 
@@ -34,7 +40,7 @@ struct CelestialObject {
 }
 
 
-fn mass_to_radius(mass:f64) -> f64 {
+fn mass_to_radius(mass:f64) -> f64{
     // mass = [1.0, infty]
     // radius = [3.0, 100.0]
     mass.sqrt() + 2.0
@@ -43,10 +49,18 @@ fn mass_to_radius(mass:f64) -> f64 {
 
 impl Widget<Simulation> for GravityDisplay {
     fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut Simulation, _env: &Env) {
-
         match event {
             Event::WindowConnected => {
                 self.timer_id = ctx.request_timer(TIMER_INTERVAL);
+                ctx.request_focus();
+            }
+
+            Event::KeyDown(button) => {
+                match button.code {
+                    Code::Comma => data.scale -= 0.03,
+                    Code::Period => data.scale += 0.03,
+                    _ => {}
+                }
             }
             Event::Timer(id) => {
                 if *id == self.timer_id {
@@ -55,54 +69,82 @@ impl Widget<Simulation> for GravityDisplay {
                     self.timer_id = ctx.request_timer(TIMER_INTERVAL);
                 }
             }
+            Event::MouseDown(mouse) => {
+                match mouse.button {
+                    MouseButton::Middle => {
+                        data.middle_mouse_pressed = true;
+                        data.init_cursor_pos = data.cursor_pos.clone();
+                        data.init_camera_pos = data.camera_pos.clone();
+                    }
+                    MouseButton::Left => {
+                        data.left_mouse_pressed = true;
+                        data.init_cursor_pos = data.cursor_pos.clone();
+                    }
+                    _ => {}
+                }
+            }
             Event::MouseMove(event) => {
                 data.cursor_pos = event.window_pos.clone();
                 
-                if !data.mouse_pressed {
+                if !data.left_mouse_pressed{
                     data.proposed_body.x = data.cursor_pos.x.clone();
                     data.proposed_body.y = data.cursor_pos.y.clone();
                 }
-
                 ctx.request_paint();
             }
             Event::Wheel(event) => {
                 data.proposed_body.mass += 0.3 * event.wheel_delta.y;
                 ctx.request_paint();
             }
-            Event::MouseDown(mouse) => {
-                match mouse.button {
-                    MouseButton::Left => {
-                        data.mouse_pressed = true;
-                    }
-                    _ => {}
-                }
-            }
             Event::MouseUp(mouse) => {
                 match mouse.button {
+                    MouseButton::Middle => {
+                        data.middle_mouse_pressed = false;
+                        data.init_cursor_pos = Point::ZERO;
+                        data.init_camera_pos = Point::ZERO;
+                    }
                     MouseButton::Left => {
-                        data.mouse_pressed = false;
+                        data.left_mouse_pressed = false;
                         let mut body = data.proposed_body.clone();
                         let scale = 20.0;
-                        let delta = ((data.cursor_pos.x - body.x), (data.cursor_pos.y - body.y));
+                        let delta = ((data.cursor_pos.x - data.init_cursor_pos.x) / 1.0, (data.cursor_pos.y - data.init_cursor_pos.y) / 1.0);
+                        body.x = data.init_cursor_pos.x / data.scale  - data.camera_pos.x;
+                        body.y = data.init_cursor_pos.y / data.scale - data.camera_pos.y;
                         body.prev_x = body.x + delta.0 / scale; 
                         body.prev_y = body.y + delta.1 / scale;
+                        data.proposed_body = CelestialObject::new(0.0, 0.0, body.mass.clone());
                         data.bodies.borrow_mut().push(body);
-                        data.proposed_body = CelestialObject::new(0.0, 0.0, 10.0);
+                        data.init_cursor_pos = Point::ZERO;
                     }
                     _ => {}
                 }
             }
+            
             _ => {}
-        }
+        };
+
+        // // Calculating the camera position
+        if data.middle_mouse_pressed {
+            let delta = (
+                (data.cursor_pos.x - data.init_cursor_pos.x) / data.scale,
+                (data.cursor_pos.y - data.init_cursor_pos.y) / data.scale,
+            );
+            data.camera_pos = Point::new(
+                data.init_camera_pos.x + delta.0,
+                data.init_camera_pos.y + delta.1,
+            );
+        } 
     }
     
     fn lifecycle(
         &mut self,
-        _ctx: &mut LifeCycleCtx,
-        _event: &LifeCycle,
+        ctx: &mut LifeCycleCtx,
+        _lifestyle: &LifeCycle,
         _data: &Simulation,
         _env: &Env
-    ) {}
+    ) {
+        ctx.register_for_focus();
+    }
 
     fn update(
         &mut self,
@@ -129,15 +171,20 @@ impl Widget<Simulation> for GravityDisplay {
         _env: &Env) {
         
         for body in (*data.bodies).borrow().iter() {
-            let point = Circle::new((body.x, body.y), mass_to_radius(body.mass));
+            let point = Circle::new(
+                ((body.x + data.camera_pos.x) * data.scale, 
+                 (body.y + data.camera_pos.y) * data.scale), 
+                mass_to_radius(body.mass) * data.scale
+            );
             ctx.fill(point, &Color::RED);
         }
         
-        ctx.fill(Circle::new((data.proposed_body.x, data.proposed_body.y), mass_to_radius(data.proposed_body.mass)), &Color::WHITE);
-
-        if data.mouse_pressed {
-            ctx.stroke(Line::new(data.cursor_pos.clone(), Point::new(data.proposed_body.x, data.proposed_body.y)), &Color::GRAY, 3.0); 
+        ctx.fill(Circle::new((data.cursor_pos.x, data.cursor_pos.y), mass_to_radius(data.proposed_body.mass) * data.scale), &Color::WHITE);
+        if data.left_mouse_pressed {
+            ctx.stroke(Line::new(data.cursor_pos.clone(), Point::new(data.init_cursor_pos.x, data.init_cursor_pos.y)), &Color::GRAY, 2.5); 
         }
+
+        println!("{:?}", data.camera_pos);
     }
 }
 
@@ -220,8 +267,13 @@ impl Simulation {
             bodies,
             dt,
             cursor_pos: Point::new(0.0, 0.0),
+            camera_pos: Point::new(0.0, 0.0),
             proposed_body: CelestialObject::new(0.0, 0.0, 10.0),
-            mouse_pressed: false,
+            left_mouse_pressed: false,
+            middle_mouse_pressed: false,
+            scale: 1.0,
+            init_cursor_pos: Point::new(0.0, 0.0),
+            init_camera_pos: Point::new(0.0, 0.0),
         }
     }
 }
@@ -232,7 +284,7 @@ impl CelestialObject {
         let delta_y: f64 = source.y - self.y;
 
         let distance: f64 = (delta_x.powi(2) + delta_y.powi(2)).sqrt();
-        let force: f64 =  15.0 * (self.mass * source.mass) / (distance * distance);
+        let force: f64 =  20.0 * (self.mass * source.mass) / (distance * distance);
 
         return (force * (delta_x / distance), force * (delta_y / distance));
     }
@@ -278,7 +330,7 @@ fn main(){
 
     let sim = Simulation::new(
         Rc::new(RefCell::new(bodies)),
-        0.1,
+        0.05,
     ) ;
 
     let window = WindowDesc::new(GravityDisplay {timer_id : TimerToken::INVALID}).title(
