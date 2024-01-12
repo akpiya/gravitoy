@@ -1,6 +1,6 @@
 use druid::Data;
 
-// Refers to 
+// Represents every object in the simulation
 #[derive(Clone, PartialEq, Data, Debug)]
 pub struct CelestialObject {
     pub x: f64,
@@ -14,6 +14,7 @@ pub struct CelestialObject {
 
 
 impl CelestialObject {
+
     pub fn calculate_force(&self, source: &CelestialObject) -> (f64, f64) {
         let delta_x: f64 = source.x - self.x;
         let delta_y: f64 = source.y - self.y;
@@ -24,7 +25,15 @@ impl CelestialObject {
         return (force * (delta_x / distance), force * (delta_y / distance));
     }
 
+    
+    // Performs Verlet integration given the net acceleration of this body
     pub fn update_fields_from_force(&mut self, acc: &(f64, f64), dt: &f64) {
+        if self.color == 6 {
+            self.x = self.prev_x;
+            self.y = self.prev_y;
+            return ;
+        }
+
         let prev_x = self.x;
         let prev_y = self.y;
 

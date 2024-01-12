@@ -12,7 +12,7 @@ use std::sync::RwLock;
 
 
 const NUM_THREADS: u32 = 3;
-const TRAJECTORY_POINTS: u32 = 3;
+const TRAJECTORY_POINTS: u32 = 5;
 
 
 pub fn mass_to_radius(mass:f64) -> f64{
@@ -84,22 +84,13 @@ impl Simulation {
         }
     }
 
+    // performs one tick to update the bodies' positions
     pub fn update(&mut self) {
-        // Need to create intermediate Vecs that can store each thread's results, but how to make it return??
-
         let mut accs: Vec<(f64, f64)> = Vec::new();
         let mut merges: Vec<(usize, usize)> = Vec::new();
 
         {
             let bodies = self.bodies.borrow();
-
-
-            for body in bodies.iter() {
-                println!("{:?} ", (body.x, body.y));
-                println!();
-            }
-
-
             let mut net_force = (0.0, 0.0);
 
             for i in 0..bodies.len() {
@@ -117,12 +108,7 @@ impl Simulation {
                 }
                 net_force.0 /= bodies[i].mass;
                 net_force.1 /= bodies[i].mass;
-
-                if bodies[i].color == 6 {
-                    accs.push((0.0, 0.0));
-                } else {
-                    accs.push(net_force);
-                }
+                accs.push(net_force);
             }
         }
 
@@ -132,6 +118,8 @@ impl Simulation {
 
         let mut delete_idxs: Vec<usize> = Vec::new();
 
+        // goes through all the merges and selects the larger mass
+        // to be the one that incorporates the smaller one.
         for i in 0..(merges.len() / 2) as usize{
             let body1 = self.bodies.borrow()[merges[i].0].clone();
             let body2 = self.bodies.borrow()[merges[i].1].clone();
@@ -181,6 +169,7 @@ impl Simulation {
             }
         }
 
+        //deletes the merged bodies
         delete_idxs.sort();
         let mut bodies = self.bodies.borrow_mut();
         for (i, ele) in delete_idxs.iter().enumerate() {

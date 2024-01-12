@@ -1,7 +1,7 @@
 mod object;
 mod simulation;
 
-use simulation::Simulation;
+use simulation::{Simulation, mass_to_radius};
 use object::CelestialObject;
 use std::cell::RefCell;
 use std::sync::Arc;
@@ -85,6 +85,21 @@ impl Widget<Simulation> for GravityDisplay {
                         // Normal case if mouse button is pressed
                         data.left_mouse_pressed = true;
                         data.init_cursor_pos = data.cursor_pos.clone();
+                    }
+                    MouseButton::Right => {
+                        let cursor = data.cursor_pos.clone();
+                        
+                        let mut idx = -1;
+                        for (i, body) in data.bodies.borrow().iter().enumerate() {
+                            let dist = (((body.x + data.camera_pos.x) * data.scale - cursor.x).powf(2.0) + ((body.y + data.camera_pos.y) * data.scale - cursor.y).powf(2.0)).powf(0.5);
+                            if dist <= mass_to_radius(body.mass) {
+                                idx = i as i32;
+                                break;
+                            }
+                        }
+                        if idx != -1 {
+                            data.bodies.borrow_mut().remove(idx as usize);
+                        }
                     }
                     _ => {}
                 }
@@ -191,6 +206,10 @@ impl Widget<Simulation> for GravityDisplay {
         ctx: &mut PaintCtx,
         data: &Simulation,
         _env: &Env) {
+        //Changing background color
+        let background = Color::rgb8(60, 60, 60);
+        let size = ctx.size();
+        ctx.fill(size.to_rect(), &background);
         
         for body in (*data.bodies).borrow().iter() {
             let point = Circle::new(
