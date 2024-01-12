@@ -1,6 +1,19 @@
 # GraviToy
 
-GraviToy is simple, lightweight N-body simulator. You can experiment with N-body gravitational systems and create cool patterns like this one:
+GraviToy is simple, lightweight N-body simulator. You can experiment with N-body gravitational systems and create cool patterns like these:
+
+![alt text](https://github.com/akpiya/gravitoy/imgs/pic1.png)
+
+![alt text](https://github.com/akpiya/gravitoy/blob/master/imgs/pic2.png)
+
+### Samples of GraviToy
+
+![alt text](https://github.com/akpiya/gravitoy/blob/master/imgs/vid1.gif)
+
+![alt text](https://github.com/akpiya/gravitoy/blob/master/imgs/vid2.gif)
+
+![alt text](https://github.com/akpiya/gravitoy/blob/master/imgs/vid3.gif)
+
 
 ## Getting Started
 
